@@ -16,29 +16,29 @@ func main() {
 	fmt.Println("start")
 	var e Engine
 	var bet int = 0
-	var ordersFeed [10000000]Order
+	var ordersFeed [2000000]Order
 	bet = len(ordersFeed) / 2
 	for i := 0; i < bet; i++ {
 		ordersFeed[i].symbol = "SYM"
 		ordersFeed[i].trader = fmt.Sprintf("ID%d", i)
 		ordersFeed[i].side = 1
 		ordersFeed[i].size = 1
-		var m int = i / 10000 + 1
+		var m int = i/100 + 1
 		ordersFeed[i].price = Price(m)
 	}
-	for i := bet; i < 20; i++ {
+	for i := bet; i < 2000000; i++ {
 		ordersFeed[i].symbol = "SYM"
 		ordersFeed[i].trader = fmt.Sprintf("ID%d", i)
 		ordersFeed[i].side = 0
 		ordersFeed[i].size = 1
-		var m int = (i-bet)/10 + 1
+		var m int = (i-bet)/100 + 1
 		ordersFeed[i].price = Price(m)
 	}
-	// ordersFeed[10000000].symbol = "SYM"
-	// ordersFeed[10000000].trader = "ID70001"
-	// ordersFeed[10000000].side = 0
-	// ordersFeed[10000000].size = 10000000
-	// ordersFeed[10000000].price = 1000
+	// ordersFeed[5000000].symbol = "SYM"
+	// ordersFeed[5000000].trader = "ID70001"
+	// ordersFeed[5000000].side = 0
+	// ordersFeed[5000000].size = 5000000
+	// ordersFeed[5000000].price = 1000
 	fmt.Println("man size:", unsafe.Sizeof(ordersFeed))
 	e.Reset()
 	begin := time.Now()

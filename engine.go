@@ -64,12 +64,17 @@ package main
 
 import (
 	"fmt"
-	"github.com/yasushi-saito/rbtree"
+	"github.com/HuKeping/rbtree"
 )
 
 type MyItem struct {
 	key   Price
 	value pricePoint
+}
+
+// We will order the node by `Time`
+func (x MyItem) Less(than rbtree.Item) bool {
+	return x.key < (than.(MyItem).key)
 }
 
 type Engine struct {
@@ -80,7 +85,7 @@ type Engine struct {
 	// An array of pricePoint structures representing the entire limit order
 	// book.
 	// pricePoints [uint(maxPrice) + 1]pricePoint
-	pricePoints *rbtree.Tree
+	pricePoints *rbtree.Rbtree
 	curOrderID  OrderID // Monotonically-increasing orderID.
 	askMin      uint    // Minimum Ask price.
 	bidMax      uint    // Maximum Bid price.
@@ -120,7 +125,7 @@ func (e *Engine) Reset() {
 	}
 
 	e.Execute = msss
-	e.pricePoints = rbtree.NewTree(func(a, b rbtree.Item) int { return int(a.(MyItem).key - b.(MyItem).key) })
+	e.pricePoints = rbtree.New()
 	// tree := rbtree.NewTree(func(a, b rbtree.Item) int { return a.(MyItem).key - b.(MyItem).key })
 	// tree.Insert(MyItem{10, "value10"})
 	// tree.Insert(MyItem{12, "value12"})
@@ -139,21 +144,20 @@ func (e *Engine) Limit(order Order) OrderID {
 	var price Price = order.price
 	var orderSize Size = order.size
 	var tmp MyItem
+
 	if order.side == Bid { // Buy order.
 		// Look for outstanding sell orders that cross with the incoming order.
+		// fmt.Println("all", order.trader, order.price, e.askMin)
+		// for i := 0; i < 5; i++ {
+		// 	fmt.Println(e.pricePoints.Get(MyItem{key: Price(i + 1)}))
+		// }
 		if uint(price) >= e.askMin {
 			// ppEntry := &e.pricePoints[e.askMin]
-
-			if e.pricePoints.Get(MyItem{key: Price(e.askMin)}) == nil {
-				e.pricePoints.Insert(MyItem{key: Price(e.askMin)})
-			}
-
 			tmp.key = Price(e.askMin)
 			pentry := e.pricePoints.Get(tmp).(MyItem).value
 			ppEntry := &pentry
 			for {
 				bookEntry := ppEntry.listHead
-
 				for bookEntry != nil {
 					if bookEntry.size < orderSize {
 						execute(e.Execute, order.symbol, order.trader, bookEntry.trader, Price(e.askMin), bookEntry.size)
@@ -168,9 +172,9 @@ func (e *Engine) Limit(order Order) OrderID {
 						} else {
 							bookEntry = bookEntry.next
 						}
-
 						ppEntry.listHead = bookEntry
-						e.pricePoints.Insert(MyItem{key: Price(e.askMin), value: pentry})
+						NewPoint := *ppEntry
+						e.pricePoints.Insert(MyItem{key: Price(e.askMin), value: NewPoint})
 						e.curOrderID++
 
 						return e.curOrderID
@@ -179,15 +183,17 @@ func (e *Engine) Limit(order Order) OrderID {
 
 				// We have exhausted all orders at the askMin price point. Move
 				// on to the next price level.
+				// fmt.Println("debug", e.askMin)
 				ppEntry.listHead = nil
 				tmp.key = Price(e.askMin)
-				nodeg := e.pricePoints.FindGE(tmp).Next()
-				if nodeg.Limit() == true {
+				nodek := e.pricePoints.AscNext(tmp)
+				if nodek == nil {
 					break
 				}
-				e.askMin = uint(nodeg.Item().(MyItem).key)
+				e.askMin = uint(nodek.(MyItem).key)
+				// fmt.Println("next ", e.askMin)
 				tmp.key = Price(e.askMin)
-				tmpp := e.pricePoints.Get(tmp).(MyItem).value
+				tmpp := nodek.(MyItem).value
 				ppEntry = &tmpp
 
 				// if uint(price) < e.askMin {
@@ -202,8 +208,9 @@ func (e *Engine) Limit(order Order) OrderID {
 		entry.trader = order.trader
 		tmp.key = price
 		var priceentry pricePoint
-		if e.pricePoints.Get(MyItem{key: price}) != nil {
-			priceentry = e.pricePoints.Get(MyItem{key: price}).(rbtree.Item).(MyItem).value
+		find := e.pricePoints.Get(MyItem{key: price})
+		if find != nil {
+			priceentry = find.(MyItem).value
 		}
 		ppInsertOrder(&priceentry, entry)
 		e.pricePoints.Insert(MyItem{key: price, value: priceentry})
@@ -216,9 +223,6 @@ func (e *Engine) Limit(order Order) OrderID {
 	} else { // Sell order.
 		// Look for outstanding Buy orders that cross with the incoming order.
 		if uint(price) <= e.bidMax {
-			if e.pricePoints.Get(MyItem{key: Price(e.bidMax)}) == nil {
-				e.pricePoints.Insert(MyItem{key: Price(e.bidMax)})
-			}
 
 			tmp.key = Price(e.bidMax)
 			pentry := e.pricePoints.Get(tmp).(MyItem).value
@@ -242,7 +246,8 @@ func (e *Engine) Limit(order Order) OrderID {
 							bookEntry = bookEntry.next
 						}
 						ppEntry.listHead = bookEntry
-						e.pricePoints.Insert(MyItem{key: Price(e.bidMax), value: pentry})
+						NewPoint := *ppEntry
+						e.pricePoints.Insert(MyItem{key: Price(e.bidMax), value: NewPoint})
 						e.curOrderID++
 						return e.curOrderID
 					}
@@ -250,33 +255,38 @@ func (e *Engine) Limit(order Order) OrderID {
 
 				// We have exhausted all orders at the bidMax price point. Move
 				// on to the next price level.
+				// for i := 0; i < 10; i++ {
+				// 	fmt.Println(e.pricePoints.Get(MyItem{key: Price(i + 10)}))
+				// }
+				// fmt.Println("debug", e.bidMax)
 				ppEntry.listHead = nil
 				tmp.key = Price(e.bidMax)
-				nodel := e.pricePoints.FindLE(tmp).Prev()
-				if nodel.Limit() == true {
+				nodek := e.pricePoints.DescNext(tmp)
+				if nodek == nil {
 					break
 				}
-				e.bidMax = uint(nodel.Item().(MyItem).key)
+				e.bidMax = uint(nodek.(MyItem).key)
+				// fmt.Println("next ", e.bidMax)
 				tmp.key = Price(e.bidMax)
-				tmpp := e.pricePoints.Get(tmp).(MyItem).value
+				tmpp := nodek.(MyItem).value
 				ppEntry = &tmpp
-
 				// if uint(price) > e.bidMax {
 				// 	break
 				// }
 			}
 		}
-
 		e.curOrderID++
 		entry := &e.bookEntries[e.curOrderID]
 		entry.size = orderSize
 		entry.trader = order.trader
 		tmp.key = price
 		var priceentry pricePoint
-		if e.pricePoints.Get(MyItem{key: price}) != nil {
-			priceentry = e.pricePoints.Get(MyItem{key: price}).(rbtree.Item).(MyItem).value
+		find := e.pricePoints.Get(MyItem{key: price})
+		if find != nil {
+			priceentry = find.(MyItem).value
 		}
 		ppInsertOrder(&priceentry, entry)
+		// fmt.Println("debug2", e.pricePoints.Get(MyItem{key: Price(e.askMin)}))
 		e.pricePoints.Insert(MyItem{key: price, value: priceentry})
 
 		if e.askMin > uint(price) {
@@ -307,10 +317,12 @@ func execute(hook func(Execution), symbol, buyTrader, sellTrader string, price P
 	exec.side = Bid
 	exec.trader = buyTrader
 
+	// fmt.Println("buy", buyTrader)
 	hook(exec) // Report the buy-side trade.
 
 	exec.side = Ask
 	exec.trader = sellTrader
+	// fmt.Println("sell ", sellTrader)
 	hook(exec) // Report the sell-side trade.
 }
 
@@ -325,7 +337,7 @@ func ppInsertOrder(ppEntry *pricePoint, entry *orderBookEntry) {
 }
 
 func msss(exec Execution) {
-	if exec.price == 0 {
+	if exec.price == 20000 {
 		fmt.Println("symbol ", exec.symbol, "trader ", exec.trader, "price ", exec.price, "size ", exec.size)
 	}
 }
